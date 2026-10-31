@@ -436,4 +436,6 @@
     <string name="shell_no_link_found">Aucun lien trouvé dans le texte partagé</string>
     <string name="shell_link_blocked">Lien bloqué par sécurité</string>
     <string name="shell_unsupported_file_type">Emaki ne peut pas ouvrir ce type de fichier</string>
+    <string name="download_notification_channel">Téléchargements de chapitres</string>
+    <string name="download_notification_title">Téléchargement des chapitres</string>
 </resources>

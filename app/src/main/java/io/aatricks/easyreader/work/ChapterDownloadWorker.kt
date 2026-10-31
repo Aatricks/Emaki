@@ -1,19 +1,26 @@
 package io.aatricks.easyreader.work
 
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.util.Log
+import androidx.core.app.NotificationChannelCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import io.aatricks.easyreader.R
 import io.aatricks.easyreader.data.model.PrefetchResult
 import io.aatricks.easyreader.data.model.isStrictOfflineReady
 import io.aatricks.easyreader.data.repository.ContentRepository
 import io.aatricks.easyreader.data.repository.DownloadStatusReconciler
 import io.aatricks.easyreader.data.repository.LibraryRepository
 import io.aatricks.easyreader.util.UrlSanitizer
+import io.aatricks.easyreader.util.rethrowCancellation
 
 /**
  * Persists chapter downloads to WorkManager so they survive process death and OS-level
@@ -58,6 +65,8 @@ class ChapterDownloadWorker @AssistedInject constructor(
             return Result.success(existing.toTerminalData())
         }
 
+        // Before the limiter wait: queued workers keep the service alive between chapters.
+        promoteToForeground(safeUrl)
         contentRepository.beginUserDownload(url)
         return try {
             var publishedTerminal = false
@@ -99,6 +108,34 @@ class ChapterDownloadWorker @AssistedInject constructor(
         }
     }
 
+    /**
+     * Without a foreground service, Samsung's app sleep force-stops the process about a minute
+     * after the app leaves the screen, and every queued download stalls until the next launch.
+     * Android refuses the promotion when the app is already in the background; the download
+     * then runs as a plain job rather than failing.
+     */
+    private suspend fun promoteToForeground(safeUrl: String) {
+        runCatching { setForeground(foregroundInfo()) }
+            .rethrowCancellation()
+            .onFailure { Log.w(TAG, "foreground promotion refused url=$safeUrl message=${it.message}") }
+    }
+
+    private fun foregroundInfo(): ForegroundInfo {
+        val context = applicationContext
+        NotificationManagerCompat.from(context).createNotificationChannel(
+            NotificationChannelCompat.Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_LOW)
+                .setName(context.getString(R.string.download_notification_channel))
+                .build()
+        )
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle(context.getString(R.string.download_notification_title))
+            .setOngoing(true)
+            .setSilent(true)
+            .build()
+        return ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+    }
+
     private suspend fun reconcileFlag(url: String, result: PrefetchResult) {
         val item = libraryRepository.getItemByUrl(url) ?: return
         downloadStatusReconciler.reconcile(item, result, wasUserInspect = true)
@@ -135,6 +172,9 @@ class ChapterDownloadWorker @AssistedInject constructor(
     companion object {
         private const val TAG = "ChapterDownloadWorker"
         private const val MAX_RUN_ATTEMPTS = 5
+        private const val CHANNEL_ID = "chapter_downloads"
+        // Shared by every chapter worker so the user sees one notification, not one per chapter.
+        private const val NOTIFICATION_ID = 0x0D0A
 
         const val KEY_CHAPTER_URL = "chapter_url"
         const val KEY_HTML_CACHED = "html_cached"
