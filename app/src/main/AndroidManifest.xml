@@ -5,6 +5,9 @@
     <!-- Required permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Chapter downloads run as a foreground service so OEM app-sleep can't kill them. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     
     <!-- Storage permissions for Android 9 and below -->
     <uses-permission 
@@ -88,6 +91,11 @@
                 android:value="androidx.startup"
                 tools:node="remove" />
         </provider>
+
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <!-- FileProvider for sharing update APKs -->
         <provider
